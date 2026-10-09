@@ -536,5 +536,100 @@ async function saveRow(e,t,id){e.preventDefault();const fd=new FormData(e.target
 
 loadPublic();
 </script>
+<script>
+/* FMD landing upgrade: roster updates + infractions (specialities-style cards),
+   monthly recognition (team-members-style photo cards). Integrated into index.html. */
+(()=>{
+const css=`
+:root{--accent:#3b5bff;--accent-soft:#8ea2ff;--card:#0e131b;--card-line:rgba(255,255,255,.07)}
+html.light{--accent-soft:#2f45d6;--card:#fff;--card-line:rgba(15,23,34,.1)}
+.showcase{text-align:center}
+.showcase-head{max-width:640px;margin:0 auto 54px}
+.showcase-kicker{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#8f99a8;margin-bottom:14px}
+.showcase-head h2{margin:0;font-size:clamp(34px,5vw,52px);letter-spacing:-.04em;font-weight:700;line-height:1.05}
+.showcase-head h2 em{font-style:normal;color:var(--accent)}
+.showcase-head p{color:var(--muted);font-size:13px;line-height:1.7;margin:14px auto 0}
+.cards3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;max-width:1100px;margin:0 auto}
+.team-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px;max-width:1100px;margin:0 auto}
+.cards3>.muted,.team-grid>.muted{grid-column:1/-1}
+.cards3>.s-card:only-child{grid-column:2}
+.s-card{background:var(--card);border:1px solid var(--card-line);border-radius:6px;padding:38px 28px 32px;display:flex;flex-direction:column;align-items:center;text-align:center;min-width:0}
+.s-icon{width:44px;height:44px;border-radius:8px;border:1px solid rgba(59,91,255,.35);background:rgba(59,91,255,.1);color:var(--accent-soft);display:grid;place-items:center;margin-bottom:22px}
+.s-icon svg{width:22px;height:22px}
+.s-tag{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#8f99a8;margin-bottom:10px}
+.s-card h3{margin:0;font-size:15px;letter-spacing:-.01em;overflow-wrap:anywhere}
+.s-line{display:block;width:28px;height:2px;background:var(--accent);margin:14px 0 16px;border-radius:2px}
+.s-card p{margin:0;color:#7e8896;font-size:12px;line-height:1.7;white-space:pre-line;overflow-wrap:anywhere}
+.s-card small{display:block;margin-top:18px;color:#566070;font-size:10px}
+.search-center{max-width:420px;margin:-20px auto 36px}
+.t-item{min-width:0}
+.t-card{position:relative;aspect-ratio:1/1.12;background:var(--card);border:1px solid var(--card-line);border-radius:6px;overflow:hidden;display:grid;place-items:center}
+.t-card:before{content:"";position:absolute;inset:0;background:linear-gradient(160deg,rgba(255,255,255,.09),rgba(255,255,255,.015));clip-path:polygon(0 34%,100% 0,100% 100%,0 100%)}
+.t-card img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top;filter:grayscale(1);transition:filter .3s}
+.t-item:hover .t-card img{filter:none}
+.t-initials{position:relative;font-size:44px;font-weight:700;letter-spacing:-.04em;color:rgba(255,255,255,.28)}
+.t-cap{margin-top:14px;text-align:center}
+.t-cap strong{display:block;font-size:13px}
+.t-cap span{display:block;color:var(--accent-soft);font-size:11px;margin-top:4px}
+.t-cap small{display:block;color:#7e8896;font-size:10px;margin-top:3px}
+.t-cap p{color:#7e8896;font-size:11px;line-height:1.55;margin:10px 0 0;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+html.light .showcase-kicker,html.light .s-tag{color:#5b6676}
+html.light .s-card,html.light .t-card{box-shadow:0 8px 24px rgba(30,45,70,.05)}
+html.light .s-card p,html.light .t-cap small,html.light .t-cap p{color:#4d5968}
+html.light .s-card small{color:#8a95a5}
+html.light .t-card:before{background:linear-gradient(160deg,rgba(15,23,34,.07),rgba(15,23,34,.015))}
+html.light .t-initials{color:rgba(15,23,34,.25)}
+@media(max-width:900px){.cards3{grid-template-columns:repeat(2,minmax(0,1fr))}.cards3>.s-card:only-child{grid-column:auto}.team-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.cards3{grid-template-columns:1fr}.showcase-head{margin-bottom:36px}}`;
+const st=document.createElement('style');st.textContent=css;document.head.appendChild(st);
+
+/* Rebuild the three public sections */
+const sec=(id,kick,h,em,p,body)=>{const s=document.getElementById(id);if(!s)return;s.className='section showcase';
+  s.innerHTML=`<div class="showcase-head">${kick?`<div class="showcase-kicker">${kick}</div>`:''}<h2>${h} <em>${em}</em></h2><p>${p}</p></div>${body}`};
+sec('updates','Announcements','Roster','updates','Official personnel announcements, published by authorized administrators.','<div class="cards3" id="rosterCards"><p class="muted">Loading updates…</p></div>');
+sec('recognition','','Monthly','recognition','Recognizing the personnel whose dedication, teamwork, and service make a difference.','<div class="team-grid" id="recCards"><p class="muted">Loading monthly recognition…</p></div>');
+sec('infractions','Conduct record','Department','infractions','Official conduct record. Search a name to see published warnings and disciplinary actions.','<div class="field search-center"><input id="infSearch" placeholder="Search by name..." autocomplete="off" oninput="loadInfractions(this.value)"></div><div class="cards3" id="infCards"><p class="muted">Loading…</p></div>');
+/* Hidden sinks allow existing references to finish without errors. */
+['rosterUpdates','monthlyRecognitions','infList'].forEach(id=>{const d=document.createElement('div');d.id=id;d.hidden=true;document.body.appendChild(d)});
+
+const IC={
+roster:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h8M8 17h4"/></svg>',
+alert:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2.5 20h19L12 3z"/><path d="M12 10v5M12 18h.01"/></svg>'};
+const card=(icon,tag,title,body,foot)=>`<article class="s-card"><div class="s-icon">${icon}</div>${tag?`<span class="s-tag">${esc(tag)}</span>`:''}<h3>${esc(title)}</h3><i class="s-line"></i><p>${esc(body)}</p>${foot?`<small>${esc(foot)}</small>`:''}</article>`;
+const initials=n=>String(n||'?').trim().split(/\s+/).slice(0,2).map(w=>w[0]).join('').toUpperCase();
+const dt=d=>d?new Date(d).toLocaleDateString():'';
+
+window.loadPublic=async function(){
+  renderFaq(DEFAULT_FAQ);window.loadInfractions();
+  const R=$('rosterCards'),M=$('recCards');
+  const emptyRec='<p class="muted">No published recognition yet. New monthly recognition will appear here once an administrator publishes it.</p>';
+  if(!sb){R.innerHTML=card(IC.roster,'Notice','No updates yet','Published roster updates will appear here.');M.innerHTML=emptyRec;return}
+  const [u,f,rec]=await Promise.all([
+    sb.from('roster_updates').select('*').eq('published',true).order('created_at',{ascending:false}).limit(6),
+    sb.from('faqs').select('question,answer').eq('published',true).order('sort'),
+    sb.from('recognitions').select('month,employee_name,title,message,photo_url,published').eq('published',true).order('month',{ascending:false}).limit(12)]);
+  if(u.error){console.error('Roster updates failed:',u.error);R.innerHTML=card(IC.roster,'Database notice','Updates could not load',u.error.message+'. Check the public SELECT policy for published roster_updates.')}
+  else R.innerHTML=u.data&&u.data.length?u.data.map(r=>card(IC.roster,r.category||'Update',r.title||'Untitled update',r.body||'',dt(r.created_at))).join(''):card(IC.roster,'Notice','No published updates yet','Save a roster update with Published enabled to show it here.');
+  if(rec.error){console.error('Recognition failed:',rec.error);M.innerHTML=`<p class="muted">Recognition could not load: ${esc(rec.error.message)}. Check the public SELECT policy for published recognitions.</p>`}
+  else M.innerHTML=rec.data&&rec.data.length?rec.data.map(r=>{
+    const month=r.month?new Date(r.month+'T00:00:00').toLocaleDateString(undefined,{month:'long',year:'numeric'}):'';
+    const photo=r.photo_url?`<img src="${esc(r.photo_url)}" alt="${esc(r.employee_name||'Recognized employee')}" loading="lazy" onerror="this.remove()">`:'';
+    return `<article class="t-item"><div class="t-card"><span class="t-initials">${esc(initials(r.employee_name))}</span>${photo}</div><div class="t-cap"><strong>${esc(r.employee_name||'Recognized employee')}</strong><span>${esc(r.title||'Monthly Recognition')}</span>${month?`<small>${esc(month)}</small>`:''}${r.message?`<p>${esc(r.message)}</p>`:''}</div></article>`}).join(''):emptyRec;
+  if(f.error)console.error('FAQ failed:',f.error);else if(f.data&&f.data.length)renderFaq(f.data.map(x=>[x.question,x.answer]));
+};
+let _inf;
+window.loadInfractions=function(q=''){clearTimeout(_inf);_inf=setTimeout(async()=>{const box=$('infCards');if(!box)return;
+  const none=card(IC.alert,'Record','No infractions found','Nothing published matches your search.');
+  if(!sb){box.innerHTML=none;return}
+  let r=sb.from('infractions').select('*').eq('published',true).order('issued_on',{ascending:false}).limit(12);
+  if(q.trim())r=r.ilike('employee_name','%'+q.trim().replace(/[%_,]/g,'')+'%');
+  const{data,error}=await r;
+  if(error){console.error('Infractions failed:',error);box.innerHTML=card(IC.alert,'Database notice','Infractions could not load',error.message+'. Check the public SELECT policy for published infractions.');return}
+  box.innerHTML=data&&data.length?data.map(i=>card(IC.alert,i.type||'Record',i.employee_name||'Unnamed employee',i.reason||'',[dt(i.issued_on),i.issued_by?'Issued by '+i.issued_by:''].filter(Boolean).join(' · '))).join(''):none},q?250:0)};
+
+window.loadPublic();
+})();
+
+</script>
 </body>
 </html>
